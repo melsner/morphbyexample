@@ -1,3 +1,11 @@
+import sys
+import numpy as np
+import scipy
+from matplotlib import pyplot as plt
+from collections import *
+
+import networkx as nx
+
 #Grace's alignment code
 cache = {}
 
@@ -78,6 +86,18 @@ def getMicroclasses(data):
       sortedForms = [form for (cell, form) in sorted(forms.items())]
       dists = segmentAll(list(sortedForms))
       microclasses[tuple(dists)].append(verb)
+
+    return microclasses
+
+def getMicroclassesByCell(data):
+    microclasses = defaultdict(lambda: defaultdict(list))
+
+    for ii, (lemma, forms) in enumerate(data.lemmaToForms.items()):
+        for (cell, form) in forms.items():
+            dists = segmentAll([lemma.lower(), form.lower()])
+            microclasses[cell][tuple(dists)].append(lemma)
+
+    return microclasses
 
 def extractTree(forms):
   table = defaultdict(list)

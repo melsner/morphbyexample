@@ -1,3 +1,19 @@
+import sys
+import numpy as np
+import scipy
+from matplotlib import pyplot as plt
+from collections import *
+
+# %tensorflow_version 2.x
+import tensorflow as tf
+import tensorflow.keras as tkeras
+
+import networkx as nx
+import sklearn.neighbors
+
+from load_data import *
+from models import *
+
 import h5py
 import pickle
 
@@ -13,8 +29,7 @@ class PosUnit(tkeras.constraints.Constraint):
   def get_config(self):
     return {}
 
-def buildEmbedder(data):
-    nUnits = 64
+def buildEmbedder(data, nUnits=64):
     charDims = data.vocab.nChars #can go smaller, but not when the embedding matrix is the identity!
 
     #embed a sequence
@@ -43,7 +58,7 @@ def buildEmbedder(data):
 
     mdl.summary()
 
-    return mdl
+    return mdl, embedChar
 
 #https://stackoverflow.com/questions/59663963/how-to-create-two-layers-with-shared-weights-where-one-is-the-transpose-of-the
 class TransposedDense(tkeras.layers.Layer):
@@ -343,7 +358,7 @@ class PretrainDecoderCell(DecoderCell):
     
     return output, nextState
 
-def buildModel(data):
+def buildModel(data, embedSeq, embedChar, nUnits=64):
     inpForm = tkeras.layers.Input(shape=(data.inputSize, data.vocab.nChars))
     inpPos = tkeras.layers.Input(shape=(data.inputSize,))
     #inpRefs = [tkeras.layers.Input(shape=(data.inputSize, data.vocab.nChars)) for ri in data.references]
@@ -353,9 +368,9 @@ def buildModel(data):
     inpAlignment = tkeras.layers.Input(shape=(data.outputSize, 1), name="inpalignment")
     inpUseAlignment = tkeras.layers.Input(shape=(1,), name="inpusealignment")
 
-    embeddedIn, inChars = mdl([inpForm, inpPos])
+    embeddedIn, inChars = embedSeq([inpForm, inpPos])
 
-    embeddedRef, refChars = mdl([inpRef, inpPos])
+    embeddedRef, refChars = embedSeq([inpRef, inpPos])
     #rfs = [mdl([ri, inpPos]) for ri in inpRefs]
     #embeddedRefs = [rf[0] for rf in rfs]
     #refChars = [rf[1] for rf in rfs]
@@ -387,22 +402,23 @@ def buildModel(data):
     return inflect
 
 def checkpoint(inflect, data, run, trains, merges):
+  os.makedirs("data/%s" % run, exist_ok=True)
   idName = "%s-%dtr-%dmr" % (run, trains, merges)
   print("Writing checkpoint", idName)
-  fileName = "drive/My Drive/model/inflect-%s.h5" % idName
+  fileName = "data/%s/inflect-%s.h5" % (run, idName)
   fh = h5py.File(fileName,'w')
   weight = inflect.get_weights()
   for i in range(len(weight)):
     fh.create_dataset('weight'+str(i),data=weight[i])
   fh.close()
 
-  dataName = "drive/My Drive/model/data-%s.dump" % idName
+  dataName = "data/%s/data-%s.dump" % (run, idName)
   with open(dataName, 'wb') as fh:
     pickle.dump(data, fh)
 
 def restore(inflect, run, trains, merges):
   idName = "%s-%dtr-%dmr" % (run, trains, merges)
-  fileName = "drive/My Drive/model/inflect-%s.h5" % idName
+  fileName = "data/%s/inflect-%s.h5" % (run, idName)
   fh = h5py.File(fileName,'r')
   weight = inflect.weights
 
@@ -411,7 +427,7 @@ def restore(inflect, run, trains, merges):
     wt.assign(fh["weight" + str(ii)])
   fh.close()
 
-  dataName = "drive/My Drive/model/data-%s.dump" % idName
+  dataName = "data/%s/data-%s.dump" % (run, idName)
   with open(dataName, 'rb') as fh:
     data = pickle.load(fh)
   

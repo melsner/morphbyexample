@@ -12,6 +12,8 @@ import tensorflow.keras as tkeras
 import networkx as nx
 import sklearn.neighbors
 
+from align import *
+
 class Vocab:
   def __init__(self):
     self.alphaToInd = {}
@@ -211,7 +213,7 @@ class BatchAdapter(tkeras.utils.Sequence):
       return res
 
 class MicroclassData(GenData):
-  def __init__(self, words, microclasses, charset=None, outputSize=None, balance=False, nInstances=200, batchSize=1, copy=None):
+  def __init__(self, words, microclasses, charset=None, outputSize=None, balance=False, nInstances=200, batchSize=1, copy=None, sourceIsLemma=False):
     super(MicroclassData, self).__init__(words)
     self.microclasses = microclasses
     self.copy = copy
@@ -239,7 +241,14 @@ class MicroclassData(GenData):
       #this configures the model, but the string should not be used
       self.references = [ "NOTUSED" ]
 
-      singleTree = extractTree(list(self.lemmaToForms.values())[:100])
+      if not sourceIsLemma:
+        singleTree = extractTree(list(self.lemmaToForms.values())[:100])
+      else:
+        allFeats = set()
+        for sub in self.lemmaToForms.values():
+          for fi in sub:
+            allFeats.add(fi)
+        singleTree = [ ("LEMMA", feats) for feats in allFeats ]
 
       nxt = 0
       for (mc, members) in self.microclasses.items():
@@ -291,7 +300,7 @@ class MicroclassData(GenData):
     forms = self.lemmaToForms[lemma]
     src = self.sourceTab.get((mc, cell))
     #print("checking support", mc, lemma, forms, src, src in forms, cell in forms)
-    if src in forms and cell in forms:
+    if (src in forms or src == "LEMMA") and cell in forms:
       return True
 
   def generateTrainingData(self):
@@ -452,15 +461,21 @@ class MicroclassData(GenData):
     if omit in references:
       references.remove(omit)
 
-    assert(len(references) > 1) #at least 50% chance to terminate
-    #exemplar = omit
-    #while exemplar == omit:
+    assert(len(references) >= 1)
     exemplar = np.random.choice(references)
 
     forms = self.lemmaToForms[exemplar]
-    relevantForm = forms[refFeats]
+    if refFeats in forms:
+      relevantForm = forms[refFeats]
+      return relevantForm
 
-    return relevantForm
+    for exemplar in references:
+      forms = self.lemmaToForms[exemplar]
+      if refFeats in forms:
+        relevantForm = forms[refFeats]
+        return relevantForm
+
+    assert(0), "No exemplar for %s in %s" % (refFeats, refMC)
 
   def get(self, idx):
     mc, lemma, featsJ = self.batchIndices[idx]
@@ -468,7 +483,10 @@ class MicroclassData(GenData):
 
     featsI = self.sourceTab[mc, featsJ]
     refMC, refFeats = self.referenceTab[mc, featsJ]
-    lIn = forms[featsI]
+    if featsI == "LEMMA":
+      lIn = lemma
+    else:
+      lIn = forms[featsI]
     lOut = forms[featsJ]
     policy = self.policies[mc, featsJ]
     
@@ -540,7 +558,10 @@ class PretrainData(MicroclassData):
 
     featsI = self.sourceTab[mc, featsJ]
     refMC, refFeats = self.referenceTab[mc, featsJ]
-    lIn = forms[featsI]
+    if featsI == "LEMMA":
+      lIn = lemma
+    else:
+      lIn = forms[featsI]
     lOut = forms[featsJ]
     policy = np.array([self.policies[mc, featsJ]])
     
