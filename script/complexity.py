@@ -1,4 +1,24 @@
-def buildGuesser(data):
+import sys
+import os
+import numpy as np
+import scipy
+from matplotlib import pyplot as plt
+from collections import *
+
+# %tensorflow_version 2.x
+import tensorflow as tf
+import tensorflow.keras as tkeras
+
+import networkx as nx
+import sklearn.neighbors
+
+from load_data import *
+from models import *
+
+import h5py
+import pickle
+
+def buildGuesser(data, inflect):
     nPolicies = len(data.policyMembers())
     nReferences = len(data.referenceMembers())
 
@@ -17,9 +37,17 @@ def buildGuesser(data):
     guesser.summary()
     return guesser
 
-def exemplarProb(data, frequency, rc, normalize=lambda xx: xx, omit=None):
+def trainGuesser(data, guesser, verbose=2):
+    xs, ys, polNames, refNames = data.classAssignmentData()
+    inds = np.arange(xs[0].shape[0])
+    np.random.shuffle(inds)
+    xs = [tt[inds] for tt in xs]
+    ys = [tt[inds] for tt in ys]
+    guesser.fit(x=xs, y=ys, epochs=50, validation_split=.1, verbose=verbose)
+
+def exemplarProb(data, frequency, rc, normalize=lambda xx: xx, typeNormalize=lambda xx: xx, omit=None):
   num = 0
-  den = 0
+  dens = defaultdict(int)
   for (mc, lemma, cell, form) in data.formIterator(policyOnly=True):
     if form == omit:
       continue
@@ -27,9 +55,17 @@ def exemplarProb(data, frequency, rc, normalize=lambda xx: xx, omit=None):
     if data.referenceTab[(mc, cell)] == rc:
       num += normalize(frequency[form])
     
-    den += normalize(frequency[form])
+    dens[data.referenceTab[(mc, cell)]] += normalize(frequency[form])
 
-  return num / den
+  return typeNormalize(num) / sum([typeNormalize(xx) for xx in dens.values()])
+
+def dictify(dd):
+    res = {}
+    for kk, vv in dd.items():
+        if isinstance(vv, defaultdict):
+            vv = dictify(vv)
+        res[kk] = vv
+    return res
 
 def measureComplexity(data, inflect, guess, frequency):
   (forms, posns), (policies, refs), polNames, refNames = data.classAssignmentData()
@@ -43,13 +79,13 @@ def measureComplexity(data, inflect, guess, frequency):
     prPol = np.log(np.sum(guessPol[ind] * policies[ind]))
     prRef = np.log(np.sum(guessRef[ind] * refs[ind]))
     refClass = data.referenceTab[(mc, cell)]
-    prExe = np.log(exemplarProb(data, frequency, refClass, normalize=np.log, omit=form))
+    prExe = np.log(exemplarProb(data, frequency, refClass, typeNormalize=np.log, omit=form))
     rel = data.getExemplar(refClass[0], refClass[1], omit=lemma)
     pol = np.array([data.policies[mc, cell]])
     alignment = np.zeros((1, data.outputSize,))
     switch = np.array([0,])
     prInfl = inflect.evaluate(x=[
-      (forms[ii:ii+1], posns[ii:ii+1], pol, data.matrixize(rel, length=data.inputSize, pad=False), alignment, switch)
+      (forms[ind:ind+1], posns[ind:ind+1], pol, data.matrixize(rel, length=data.inputSize, pad=False), alignment, switch)
       ],
       y=data.matrixize(form, length=data.outputSize, pad=True), verbose=0)
     
@@ -59,7 +95,7 @@ def measureComplexity(data, inflect, guess, frequency):
 
     stats[mc][cell] += [prPol, prRef, prExe, prInfl, 1]
 
-  return stats
+  return dictify(stats)
 
 def totalComplexity(stats, dimensions):
   res = 0

@@ -21,7 +21,6 @@ from data_generators import *
 from align import *
 from models import *
 from train import *
-from multilingual import *
 
 if __name__ == "__main__":
     dd = sys.argv[1]
@@ -79,72 +78,5 @@ if __name__ == "__main__":
     embedSeq, embedChar = buildEmbedder(data)
     inflect = buildModel(data, embedSeq, embedChar)
 
-    currentFiles = os.listdir("data/" + run)
-    latest = [0, 0]
-    for fi in currentFiles:
-        mtch = re.search("%s-(\d+)tr-(\d+)mr" % run, fi)
-        if mtch:
-            nTrain, nMerge = mtch.groups()
-            nTrain, nMerge = int(nTrain), int(nMerge)
-            if [nTrain, nMerge] > latest:
-                latest = [nTrain, nMerge]
-
-    nTrain, nMerge = latest
-
-    print("Latest file found was", nTrain, nMerge)
-    if nTrain < 4 and nMerge == 0:
-        print("Pretraining")
-        trainModel(data, inflect, run, 5, verbose=2)
-
-    print("Done with pretraining")
-
-    if nMerge < 9:
-        print("Training")
-        if nTrain > 0:
-            train(run, data, inflect, (nTrain, nMerge))
-        else:
-            train(run, data, inflect)
-
-    print("Done with training")
-
-    targD = GenData(targ)
-    targClasses = getMicroclassesByCell(targD)
-    classes2 = {}
-
-    for cell, mcs in targClasses.items():
-        mc2 = { mc : members for (mc, members) in mcs.items()
-                if len(members) >= 2 }
-
-        classes2[cell] = mc2
-
-        print("Classes for cell:", cell)
-        for mclass, members in sorted(mc2.items(), 
-                                  key=lambda xx: len(xx[1]), reverse=True):
-            print(min(members, key=len), mclass, len(members))
-        print()
-
-    extend(data, targ, classes2, "target")
-
-    data.generateTrainingData()
-
-    run = run + "-targ-"
-    currentFiles = os.listdir("data/" + run)
-
-    latest = [0, 0]
-    for fi in currentFiles:
-        mtch = re.search("%s-(\d+)tr-(\d+)mr" % run, fi)
-        if mtch:
-            nTrain, nMerge = mtch.groups()
-            nTrain, nMerge = int(nTrain), int(nMerge)
-            if [nTrain, nMerge] > latest:
-                latest = [nTrain, nMerge]
-
-    nTrain, nMerge = latest
-    print("Latest target file found was", nTrain, nMerge)
-
-    if nMerge < 9:
-        print("Training")
-        if nTrain > 0:
-            train(run, data, inflect, (nTrain, nMerge))
-        else:
-            train(run, data, inflect)
+    data.report(inflect)
+    #colorByPolicy(data, inflect, outfile="foo")

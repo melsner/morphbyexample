@@ -251,21 +251,26 @@ class MicroclassData(GenData):
         singleTree = [ ("LEMMA", feats) for feats in allFeats ]
 
       nxt = 0
-      for (mc, members) in self.microclasses.items():
-        mcLemmas.update(members)
-        exemplar = list(members)[0]
-        exemplarForms = self.lemmaToForms[exemplar]
-        self.trees[mc] = singleTree
+      for cell, msub in self.microclasses.items():
+        for (mc, members) in msub.items():
+          mcLemmas.update(members)
+          exemplar = list(members)[0]
+          exemplarForms = self.lemmaToForms[exemplar]
+          self.trees[cell, mc] = singleTree
 
-        for (featsI, featsJ) in self.trees[mc]:
-          self.sourceTab[mc, featsJ] = featsI
-          self.referenceTab[mc, featsJ] = mc, featsJ
-          self.policies[mc, featsJ] = nxt
-          nxt += 1
+          for (featsI, featsJ) in self.trees[cell, mc]:
+            if featsJ == cell:
+              self.sourceTab[mc, featsJ] = featsI
+              self.referenceTab[mc, featsJ] = mc, featsJ
+              self.policies[mc, featsJ] = nxt
+              nxt += 1
       
       self.lemmas = list(mcLemmas)
 
     else:
+      self.lemmas = None #save some memory?
+      self.lemmaToForms = copy.lemmaToForms #save some memory?
+
       self.referenceTab = copy.referenceTab
       self.sourceTab = copy.sourceTab
       self.policies = copy.policies
@@ -309,7 +314,7 @@ class MicroclassData(GenData):
     for policy, users in self.policyMembers().items():
       toGenerate = []
       for mc, cell in users:
-        toGenerate += [(mc, li, cell) for li in self.microclasses.get(mc, []) if self.supports(mc, li, cell)]
+        toGenerate += [(mc, li, cell) for li in self.microclasses.get(cell, {}).get(mc, []) if self.supports(mc, li, cell)]
       
       if self.balance is True:
         nInstances = self.nInstances
@@ -339,43 +344,46 @@ class MicroclassData(GenData):
     return inst
 
   def report(self, inflect):
-    print(len(self.microclasses), "microclasses known")
+    for cell, msub in self.microclasses.items():
+      print(cell, ":", len(msub), "microclasses known")
 
-    for mc, members in sorted(self.microclasses.items(), key=lambda xx: len(xx[1]), reverse=True):
-      #find an example verb
-      example = members[0]
+      for mc, members in sorted(msub.items(), key=lambda xx: len(xx[1]), reverse=True):
+        if (mc, cell) not in self.sourceTab:
+          continue
 
-      mcd = {mc : members}
-      minidat = self.__class__(self.words, mcd, pUseAlignment=0, copy=self)
-      minidat.batchIndices.sort(key=lambda xx: (xx[1] != example, np.random.randint(0, 500)))
+        #find an example verb
+        example = members[0]
 
-      preds = inflect.predict(minidat, verbose=False, steps=min(100, len(minidat)))
+        mcd = { cell : {mc : members} }
+        minidat = self.__class__(self.words, mcd, pUseAlignment=0, copy=self)
+        minidat.batchIndices.sort(key=lambda xx: (xx[1] != example, np.random.randint(0, 500)))
 
-      #print how many members
-      overallAcc = 0
-      overallDen = 0
-      catAcc = defaultdict(int)
-      catDen = defaultdict(int)
+        preds = inflect.predict(minidat, verbose=False, steps=min(100, len(minidat)))
 
-      for ii in range(preds.shape[0]):
-        pi = self.vocab.decode(preds[ii]).strip("$0")
-        dummy, li, ci = minidat.batchIndices[ii]
-        ai = self.lemmaToForms[li][ci]
-        overallDen += 1
-        catDen[ci] += 1
-        if pi == ai:
-          overallAcc += 1
-          catAcc[ci] += 1
+        #print how many members
+        overallAcc = 0
+        overallDen = 0
+        catAcc = defaultdict(int)
+        catDen = defaultdict(int)
 
-      catAcc = { cat : (catAcc[cat] / den) for cat, den in catDen.items() }
-      macroAvg = sum(catAcc.values()) / len(catAcc.values())
-      print("#%d" % len(members), "overall acc", overallAcc / overallDen, "macroavg", macroAvg)
+        for ii in range(preds.shape[0]):
+          pi = self.vocab.decode(preds[ii]).strip("$0")
+          dummy, li, ci = minidat.batchIndices[ii]
+          ai = self.lemmaToForms[li][ci]
+          overallDen += 1
+          catDen[ci] += 1
+          if pi == ai:
+            overallAcc += 1
+            catAcc[ci] += 1
 
-      #for each form, print the appropriate form, the policy in use, the reference in use, and the model prediction
-      for cell, form in sorted(self.lemmaToForms[example].items()):
+        catAcc = { cat : (catAcc[cat] / den) for cat, den in catDen.items() }
+        macroAvg = sum(catAcc.values()) / len(catAcc.values())
+        print("#%d" % len(members), "overall acc", overallAcc / overallDen, "macroavg", macroAvg)
+
+        #for each form, print the appropriate form, the policy in use, the reference in use, and the model prediction
+        form = self.lemmaToForms[example][cell]
         print("{0: <40}".format("%s %s" % (cell, form)), end="\t")
-      print()
-      for cell, form in sorted(self.lemmaToForms[example].items()):
+        print()
         pol = self.policies.get((mc, cell), None)
         if pol is None:
           polStr = "[-]"
@@ -387,12 +395,12 @@ class MicroclassData(GenData):
         elif ref == None:
           refStr = "[-]"
         else:
-          ex = self.microclasses[ref[0]][0]
+          ex = self.microclasses[cell][ref[0]][0]
           exA = self.lemmaToForms[ex][ref[1]]
           refStr = "[%s]" % exA
         print("{0: <40}".format("%s %s" % (polStr, refStr)), end="\t")
-      print()
-      for cell, form in sorted(self.lemmaToForms[example].items()):
+        print()
+
         acc = 0
         den = 0
         specific = None
@@ -451,9 +459,9 @@ class MicroclassData(GenData):
 
     for mc, cell in ref:
       try:
-        references += self.microclasses[mc]
+        references += self.microclasses[cell][mc]
       except KeyError:
-        references += self.copy.microclasses[mc]
+        references += self.copy.microclasses[cell][mc]
 
     #print("fetched mcs", ref)
     #print("list of references", references)
@@ -469,6 +477,7 @@ class MicroclassData(GenData):
       relevantForm = forms[refFeats]
       return relevantForm
 
+    np.random.shuffle(references)
     for exemplar in references:
       forms = self.lemmaToForms[exemplar]
       if refFeats in forms:
@@ -506,14 +515,15 @@ class MicroclassData(GenData):
     return rval
 
   def formIterator(self, policyOnly=False):
-    for mc, lemmas in self.microclasses.items():
-      for li in lemmas:
-        forms = self.lemmaToForms[li]
-        for cell, form in forms.items():
-          if policyOnly and (mc, cell) not in self.policies:
-            continue
+    for cell, msub in self.microclasses.items():
+      for mc, lemmas in msub.items():
+        for li in lemmas:
+          forms = self.lemmaToForms[li]
+          for cell, form in forms.items():
+            if policyOnly and (mc, cell) not in self.policies:
+              continue
           
-          yield (mc, li, cell, form)
+            yield (mc, li, cell, form)
 
   def classAssignmentData(self):
     nPolicies = len(self.policyMembers())

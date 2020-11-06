@@ -1,4 +1,5 @@
 import sys
+import os
 import numpy as np
 import scipy
 from matplotlib import pyplot as plt
@@ -378,7 +379,7 @@ def buildModel(data, embedSeq, embedChar, nUnits=64):
     #flatRef = tkeras.layers.Lambda(lambda xx: tf.concat(xx, axis=1))(refChars)
     #flatEmbeds = tkeras.layers.Lambda(lambda xx: tf.concat(xx, axis=1))(embeddedRefs)
 
-    embedPolicy = tkeras.layers.Embedding(1000, 16)
+    embedPolicy = tkeras.layers.Embedding(1000, 16, name="embedPolicy")
     polEmb = embedPolicy(inpPol)
 
     #policy = tkeras.layers.RepeatVector(data.outputSize)(polEmb)

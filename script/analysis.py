@@ -1,4 +1,17 @@
-inflectGen = tkeras.Model(inputs=[inpForm, inpPos, inpPol, inpRef, inpAlignment, inpUseAlignment], outputs=[attns, shifts, result])
+import sys
+import os
+import numpy as np
+import scipy
+from matplotlib import pyplot as plt
+from collections import *
+
+import tensorflow as tf
+import tensorflow.keras as tkeras
+
+from models import *
+from merge import *
+
+#inflectGen = tkeras.Model(inputs=[inpForm, inpPos, inpPol, inpRef, inpAlignment, inpUseAlignment], outputs=[attns, shifts, result])
 
 def fzip(arr, labels):
   if hasattr(arr, "numpy"):
@@ -34,20 +47,20 @@ def inspect(ii):
     #print(result[0, ii])
     print()
 
-print(data.vocab.alphaToInd, data.vocab.indToAlpha)
-print(len(data.vocab.alphaToInd))
-print(embedChar.get_weights()[0].shape)
+#print(data.vocab.alphaToInd, data.vocab.indToAlpha)
+#print(len(data.vocab.alphaToInd))
+#print(embedChar.get_weights()[0].shape)
 
-x1 = np.zeros((1, data.vocab.nChars,), dtype="float32")
-for ii in range(data.vocab.nChars):
-  x1[:] = 0
-  x1[0, ii] = 1
-  xout = embedChar(x1)
-  print(ii, data.vocab.indToAlpha[ii], xout)
-  xrev = xdec.transposedChar(xout)
-  am = np.argmax(xrev)
-  print(xrev, am, data.vocab.indToAlpha[am])
-  print()
+#x1 = np.zeros((1, data.vocab.nChars,), dtype="float32")
+#for ii in range(data.vocab.nChars):
+#  x1[:] = 0
+#  x1[0, ii] = 1
+#  xout = embedChar(x1)
+#  print(ii, data.vocab.indToAlpha[ii], xout)
+#  xrev = xdec.transposedChar(xout)
+#  am = np.argmax(xrev)
+#  print(xrev, am, data.vocab.indToAlpha[am])
+#  print()
 
 #inspect(0)
 
@@ -67,11 +80,11 @@ def checkAnswer(ii):
   #print(xs[0].shape, xs[1].shape)
   print(data.vocab.decode(xs[0][0]), "::", data.vocab.decode(pred[0]), data.vocab.decode(ys[0]))
 
-for ii in range(10):
-  xi = np.random.randint(len(data))
-  checkAnswer(xi)
+#for ii in range(10):
+#  xi = np.random.randint(len(data))
+#  checkAnswer(xi)
 
-inflectGen = tkeras.Model(inputs=[inpForm, inpPos, inpPol, inpRef, inpAlignment, inpUseAlignment], outputs=[attns, shifts, result])
+#inflectGen = tkeras.Model(inputs=[inpForm, inpPos, inpPol, inpRef, inpAlignment, inpUseAlignment], outputs=[attns, shifts, result])
 
 def findPt(pt, data):
   for ii in range(len(data)):
@@ -106,12 +119,16 @@ def showAttn(dmaster, ii):
           sep="\t", end="\t")
     print("(%s)" % outForm[ii], sep="\t")
 
-for ii in range(3):
-  showAttn(data, np.random.randint(len(data)))
-  print()
+#for ii in range(3):
+#  showAttn(data, np.random.randint(len(data)))
+#  print()
 
-def tsnePlot(data, outfile=None):
-  plm, labels, pids = policyMatrix(data)
+def tsnePlot(data, inflect, outfile=None):
+  plm, labels, pids = policyMatrix(data, inflect)
+
+  if plm.shape[0] == 1:
+    print("Refusing to make a TSNE plot: only one item")
+    return
 
   from sklearn.manifold import TSNE
 

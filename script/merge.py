@@ -1,6 +1,13 @@
-def policyMatrix(data):
+import sys
+from size import getsize
+from data_generators import *
+import seaborn as sns
+import matplotlib
+
+def policyMatrix(data, inflect):
+  embedPolicy = inflect.get_layer(name="embedPolicy")
   policies = data.policyMembers()
-  plm = np.zeros((len(policies), polEmb.shape[-1]))
+  plm = np.zeros((len(policies), embedPolicy.output.shape[-1]))
   labels = []
   pids = []
   for ii, (pid, pis) in enumerate(policies.items()):
@@ -10,7 +17,8 @@ def policyMatrix(data):
 
   return plm, labels, pids
 
-def referenceMatrix(data):
+def referenceMatrix(data, inflect):
+  mdl = inflect.get_layer(name="inputEmbedding")
   refs = data.referenceMembers()
   plm = np.zeros((len(refs), data.inputSize))
   labels = []
@@ -19,8 +27,9 @@ def referenceMatrix(data):
     labels.append(rid)
     pids.append(rid)
     mc, cell = rid
-    exemplar = list(data.microclasses[mc])[0]
-    form = data.lemmaToForms[exemplar][cell]
+    #exemplar = list(data.microclasses[cell][mc])[0]
+    #form = data.lemmaToForms[exemplar][cell]
+    form = data.getExemplar(mc, cell)
     positions = np.arange(1, data.inputSize + 1, dtype="int")
     embed, cemb = mdl([data.matrixize(form, length=data.inputSize, pad=False),
                 positions[None, ...]])
@@ -28,14 +37,14 @@ def referenceMatrix(data):
 
   return plm, labels, pids
 
-def closestPolicies(data):
-  plm, labels, pids = policyMatrix(data)
+def closestPolicies(data, inflect):
+  plm, labels, pids = policyMatrix(data, inflect)
   nbrs = sklearn.neighbors.NearestNeighbors(n_neighbors=plm.shape[0]).fit(plm)
   distances, indices = nbrs.kneighbors(plm)
   return indices[:, 1:], labels, pids
 
-def closestReferences(data):
-  rlm, labels, rids = referenceMatrix(data)
+def closestReferences(data, inflect):
+  rlm, labels, rids = referenceMatrix(data, inflect)
   nbrs = sklearn.neighbors.NearestNeighbors(n_neighbors=rlm.shape[0]).fit(rlm)
   distances, indices = nbrs.kneighbors(rlm)
 
@@ -72,7 +81,16 @@ def policyMove(inflect, data, mcCell, label, group="policy", nSamples=200):
     if not currentLabelUsers:
       return False
     pm2.policies = dict(pm2.policies.items())
-    pm2.microclasses = { mci : mciMembers for mci, mciMembers in data.microclasses.items() if mci in currentLabelUsers or mci == mcCell[0] }
+
+    pm2.microclasses = {}
+    for cell, msub in data.microclasses.items():
+      mcNew = {}
+      for mc, mems in msub.items():
+        if (mc, cell) in currentLabelUsers or (mc, cell) == mcCell:
+          mcNew[mc] = mems
+      if mcNew:
+        pm2.microclasses[cell] = mcNew
+
     pm2.generateTrainingData()
     pm2.policies[mcCell] = label
   else:
@@ -82,7 +100,16 @@ def policyMove(inflect, data, mcCell, label, group="policy", nSamples=200):
       return False
     pm2.policies = dict(pm2.policies.items())
     pm2.referenceTab = dict(pm2.referenceTab.items())
-    pm2.microclasses = { mci : mciMembers for mci, mciMembers in data.microclasses.items() if mci in currentLabelMCs or mci == mcCell[0] }
+
+    pm2.microclasses = {}
+    for cell, msub in data.microclasses.items():
+      mcNew = {}
+      for mc, mems in msub.items():
+        if (mc, cell) in currentLabelUsers or (mc, cell) == mcCell:
+          mcNew[mc] = mems
+      if mcNew:
+        pm2.microclasses[cell] = mcNew
+
     for li in currentLabelUsers:
       pm2.policies[li] = 1
     pm2.policies[mcCell] = 2
@@ -112,6 +139,17 @@ def policyMove(inflect, data, mcCell, label, group="policy", nSamples=200):
 def policyMerge(inflect, data, label1, label2, group="policy", nSamples=200):
   dummyClasses = {}
   pm2 = PretrainData(data.words, dummyClasses, pUseAlignment=0, balance=True, copy=data, nInstances=nSamples)
+  #print("size of pm2", getsize(pm2), "size of main data", getsize(data), "size of infl", getsize(inflect))
+  #print("detailed anatomy of pm2")
+  #print("\tindices:", getsize(pm2.batchIndices))
+  #print("\tclasses:", getsize(pm2.microclasses))
+  #print("\tsources, policies and references:", getsize(pm2.sourceTab), getsize(pm2.policies), getsize(pm2.referenceTab))
+  #print("\ttrees:", getsize(pm2.trees))
+  #print("\tlemmas:", getsize(pm2.lemmas))
+  #print("\tlemmaToForms:", getsize(pm2.lemmaToForms))
+  #print("\tcopy:", getsize(pm2.copy))
+  #print()
+  
   if group == "policy":
     lu1 = [(mc, cell) for (mc, cell) in data.policyMembers()[label1]]
     lu2 = [(mc, cell) for (mc, cell) in data.policyMembers()[label2]]
@@ -119,7 +157,15 @@ def policyMerge(inflect, data, label1, label2, group="policy", nSamples=200):
       return False
     micros = [mc for (mc, cell) in lu1 + lu2]
     pm2.policies = dict(pm2.policies.items())
-    pm2.microclasses = { mci : mciMembers for mci, mciMembers in data.microclasses.items() if mci in micros }
+    pm2.microclasses = {}
+    for cell, msub in data.microclasses.items():
+      mcNew = {}
+      for mc, mems in msub.items():
+        if (mc, cell) in lu1 + lu2:
+          mcNew[mc] = mems
+      if mcNew:
+        pm2.microclasses[cell] = mcNew
+
     pm2.generateTrainingData()
     for li in lu2:
       pm2.policies[li] = label1
@@ -135,7 +181,15 @@ def policyMerge(inflect, data, label1, label2, group="policy", nSamples=200):
       pm2.policies[li] = 1
     for li in lu2:
       pm2.policies[li] = 2
-    pm2.microclasses = { mci : mciMembers for mci, mciMembers in data.microclasses.items() if mci in micros }
+
+    for cell, msub in data.microclasses.items():
+      mcNew = {}
+      for mc, mems in msub.items():
+        if (mc, cell) in lu1 + lu2:
+          mcNew[mc] = mems
+      if mcNew:
+        pm2.microclasses[cell] = mcNew
+
     pm2.generateTrainingData()
     for li in lu1:
       pm2.policies[li] = data.policies[li]
@@ -168,9 +222,9 @@ def policyMerge(inflect, data, label1, label2, group="policy", nSamples=200):
 def merges(inflect, data, prohibit={}, group="policy", tolerance=5):
   executed = 0
   if group == "policy":
-    nbrs, labels, pids = closestPolicies(data)
+    nbrs, labels, pids = closestPolicies(data, inflect)
   else:
-    nbrs, labels, pids = closestReferences(data)
+    nbrs, labels, pids = closestReferences(data, inflect)
   #print(nbrs)
   for ii, (pidi, li, nbrsi) in enumerate(zip(pids, labels, nbrs)):
     print(ii, "/", len(labels), pidi, li)
@@ -206,7 +260,15 @@ def accuracyTable(data, inflect, group="policy"):
   
   tab = {}
   for gid, members in users.items():
-    targetClasses = { mc : data.microclasses[mc] for mc, cell in members }
+    targetClasses = {}
+    for cell, msub in data.microclasses.items():
+      mcNew = {}
+      for mc, mems in msub.items():
+        if (mc, cell) in members:
+          mcNew[mc] = mems
+      if mcNew:
+        targetClasses[cell] = mcNew
+
     pmerge = PretrainData(data.words, targetClasses, pUseAlignment=0, balance=True, copy=data, nInstances=100)
     pmerge.batchIndices = [ (mc, lemma, cell) for (mc, lemma, cell) in pmerge.batchIndices if (mc, cell) in members ]
     ll, acc, zeroOne = inflect.evaluate(pmerge, verbose=0)
@@ -250,7 +312,8 @@ def consolidate(data, inflect, group="policy"):
 
     print()
 
-def colorByPolicy(data, inflect, group="policy", accuracies=None, outfile=None):
+def fnordcolorByPolicy(data, inflect, group="policy", accuracies=None, outfile=None):
+  return
   import seaborn as sns
   if group == "policy":
     nPolicies = len(set(data.policies.values()))
@@ -261,7 +324,10 @@ def colorByPolicy(data, inflect, group="policy", accuracies=None, outfile=None):
   import matplotlib
   cm = matplotlib.colors.ListedColormap(cm)
   nCells = len(list(data.trees.values())[0]) + 1
-  matrix = np.zeros((len(data.microclasses), nCells))
+  nClasses = 0
+  for cell, msub in data.microclasses.items():
+    nClasses = max(nClasses, len(msub))
+  matrix = np.zeros(nClasses, nCells)
   labels = np.zeros_like(matrix, dtype="object")
   #print(matrix.shape)
   mcLabels = []
@@ -305,4 +371,72 @@ def colorByPolicy(data, inflect, group="policy", accuracies=None, outfile=None):
 
   if outfile:
     plt.savefig(outfile)
+
+
+def colorByPolicy(data, inflect, group="policy", accuracies=None, outfile=None):
+  plt.rcParams.update({'figure.max_open_warning': 0})
+  cells = sorted(list(data.microclasses.keys()))
+
+  #figs, axs = plt.subplots(1, len(cells))
+  figs = []
+  axs = []
+  for ii in range(len(cells)):
+    fig, ax = plt.subplots()
+    figs.append(fig)
+    axs.append(ax)
+
+  if group == "policy":
+    nPolicies = len(set(data.policies.values()))
+  elif group == "reference":
+    nPolicies = len(set(data.referenceTab.values()))
+
+  cm = sns.color_palette("hls", nPolicies)
+  cm = matplotlib.colors.ListedColormap(cm)
+
+  polNums = {}
+  for ii, ci in enumerate(cells):
+    drawColumn(data, inflect, ci, axs[ii], cm, accuracies=accuracies, group=group, polNums=polNums)
+
+  if outfile:
+    for ii, fi in enumerate(figs):
+      fi.set_size_inches(10, 20)
+      fi.savefig("%s-%s.png" % (outfile, cells[ii]))
+
+    plt.close('all')
+
+def drawColumn(data, inflect, cell, axis, cm, accuracies, group, polNums):
+  nClasses = len(data.microclasses[cell])
+  matrix = np.zeros((nClasses, 1))
+  labels = np.zeros_like(matrix, dtype="object")
+  mcLabels = []
+  for row, (mc, members) in enumerate(sorted(data.microclasses[cell].items(), key=lambda xx: len(xx[1]), reverse=True)):
+    #find an example verb
+    example = members[0]
+    mcLabels.append(example)
+
+    form = data.lemmaToForms[example][cell]
+    if group == "policy":
+      pol = data.policies.get((mc, cell), None)
+    else:
+      pol = data.referenceTab.get((mc, cell), None)
+
+    if pol is None:
+      matrix[row, 0] = float('nan')
+    elif accuracies is not None and accuracies.get(pol, 0) < .9:
+      matrix[row, 0] = float('nan')
+    else:
+      polNums[pol] = polNums.get(pol, len(polNums))
+      matrix[row, 0] = polNums[pol]
+        
+    labels[row, 0] = form
+
+  axis.pcolormesh(matrix[::-1, :], cmap=cm)
+  for ri in range(labels.shape[0]):
+    for ci in range(labels.shape[1]):
+      axis.text(ci + .1, labels.shape[0] - ri - .9, labels[ri, ci])
+
+  axis.set_xticks([.5,])
+  axis.set_xticklabels([cell])
+  axis.set_yticks(np.arange(matrix.shape[0]) + .5)
+  axis.set_yticklabels(reversed(mcLabels))
 

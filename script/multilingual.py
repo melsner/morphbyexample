@@ -19,25 +19,30 @@ def extend(data, newWords, newClasses, language):
 
   nxt = max(data.policies.values()) + 1
 
-  for (mc, members) in newClasses.items():
-    mcLemmas.update(members)
-    data.trees[mc] = singleTree
+  for cell, mcs in newClasses.items():
+    for mc, members in mcs.items():
+      mcLemmas.update(members)
+      data.trees[cell, mc] = singleTree
 
-    for (featsI, featsJ) in data.trees[mc]:
-      data.sourceTab[mc, featsJ] = featsI
-      data.referenceTab[mc, featsJ] = mc, featsJ
-      data.policies[mc, featsJ] = nxt
-      balance[nxt] = 50
-      nxt += 1
+      for (featsI, featsJ) in data.trees[cell, mc]:
+        if featsJ == cell:
+          data.sourceTab[mc, featsJ] = featsI
+          data.referenceTab[mc, featsJ] = mc, featsJ
+          data.policies[mc, featsJ] = nxt
+          balance[nxt] = 50
+          nxt += 1
   
   data.langLemmas = { "src" : list(data.lemmas), language : list(mcLemmas) }
   data.lemmas += [xx for xx in list(mcLemmas) if xx not in skip]
   data.balance = balance
 
-  for cls, members in newClasses.items():
-    data.microclasses[cls] = data.microclasses.get(cls, []) + [xx for xx in members if xx not in skip]
-    print("members of class", cls, data.microclasses[cls])
+  for cell, mcs in newClasses.items():
+    if cell not in data.microclasses:
+      data.microclasses[cell] = {}
 
+    for mc, members in mcs.items():
+      data.microclasses[cell][mc] = data.microclasses[cell].get(mc, []) + [xx for xx in members if xx not in skip]
+      print("members of class", mc, data.microclasses[cell][mc])
 
 def comparisonPlot(monoStats, biStats, dimensions):
   comparison = {}
