@@ -82,12 +82,7 @@ def comparisonPlot(monoStats, biStats, dimensions):
   plt.plot([lims[0], lims[1]], [lims[0], lims[1]])
   plt.savefig("figures/%s.png" % outputName)
 
-
-def srcMicroclass(mc, cell, data):
-  lems = data.microclasses[cell][mc]
-  return set(lems).intersection(data.langLemmas["src"])
-
-def classComp(stats, dimensions):
+def classComp(stats, dimensions, filterSource=True):
   comps = {}
   for mc, sub in stats.items():
     for cell, stt in sub.items():
@@ -98,11 +93,12 @@ def classComp(stats, dimensions):
       if any([np.isinf(xx) for xx in values.values()]):
         continue
       
-      try:
-        if srcMicroclass(mc, cell, data):
+      if filterSource:
+        try:
+          if srcMicroclass(mc, cell, data):
+            continue
+        except:
           continue
-      except:
-        continue
 
       for dim in dimensions:
         total += np.abs(values[dim])
